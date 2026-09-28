@@ -1,12 +1,76 @@
 """
 Reusable Blender Python (bpy) helpers for the `image-to-blender` skill.
-Can be imported or pasted directly into `execute_blender_code` calls.
+Includes Live Foreground Viewport Redraw (`live_viewport_update`) and automatic
+Material Preview / Camera View switching so the user watches every 3D object,
+modifier, material, and light appear live on screen on both macOS and Windows.
 Compatible with Blender 3.6, 4.0, 4.1, 4.2, 4.3, 4.4, and 5.x.
 """
 
 import bpy
 import math
+import time
 from mathutils import Vector
+
+
+def live_viewport_update(pause_sec: float = 0.18, shading_mode: str = None, frame_all: bool = False):
+    """
+    Force Blender's 3D Viewport to redraw immediately in the foreground so the user
+    watches objects, modifiers, materials, and lights appear step-by-step in real time.
+    """
+    try:
+        bpy.context.view_layer.update()
+    except Exception:
+        pass
+
+    if not bpy.app.background:
+        try:
+            for window in bpy.context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type == "VIEW_3D":
+                        for space in area.spaces:
+                            if space.type == "VIEW_3D" and shading_mode:
+                                try:
+                                    space.shading.type = shading_mode
+                                except Exception:
+                                    pass
+                        if frame_all:
+                            region = next((r for r in area.regions if r.type == "WINDOW"), None)
+                            if region:
+                                with bpy.context.temp_override(window=window, area=area, region=region):
+                                    try:
+                                        bpy.ops.view3d.view_all(center=False)
+                                    except Exception:
+                                        pass
+                        area.tag_redraw()
+            bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
+        except Exception:
+            pass
+
+        if pause_sec > 0:
+            time.sleep(pause_sec)
+
+
+def set_viewport_to_camera(shading_mode: str = "MATERIAL"):
+    """Switch the active 3D Viewport to look through the active Scene Camera with Material or Rendered shading."""
+    if bpy.app.background:
+        return
+    try:
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "VIEW_3D":
+                    for space in area.spaces:
+                        if space.type == "VIEW_3D":
+                            if shading_mode:
+                                try:
+                                    space.shading.type = shading_mode
+                                except Exception:
+                                    pass
+                            if space.region_3d:
+                                space.region_3d.view_perspective = "CAMERA"
+                    area.tag_redraw()
+        bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
+    except Exception:
+        pass
 
 
 def ensure_collection(name: str, parent=None):
@@ -21,11 +85,12 @@ def ensure_collection(name: str, parent=None):
 
 
 def move_to_collection(obj, col_name: str):
-    """Move an object exclusively into the named collection."""
+    """Move an object exclusively into the named collection and redraw viewport."""
     col = ensure_collection(col_name)
     for c in list(obj.users_collection):
         c.objects.unlink(obj)
     col.objects.link(obj)
+    live_viewport_update(0.10)
 
 
 def get_world_bounds(obj):
@@ -54,7 +119,7 @@ def normalize_to_size(obj, target_max_dim: float = 1.0):
     if current_max > 1e-6:
         factor = target_max_dim / current_max
         obj.scale = (obj.scale.x * factor, obj.scale.y * factor, obj.scale.z * factor)
-        bpy.context.view_layer.update()
+        live_viewport_update(0.12)
     return obj
 
 
@@ -67,7 +132,7 @@ def place_on_z(obj, target_z: float = 0.0, x: float = None, y: float = None):
         obj.location.x += (x - center.x)
     if y is not None:
         obj.location.y += (y - center.y)
-    bpy.context.view_layer.update()
+    live_viewport_update(0.15)
     return obj
 
 
@@ -100,6 +165,7 @@ def add_bevel_and_smooth(obj, width: float = 0.01, segments: int = 3, subsurf_le
     bpy.context.view_layer.objects.active = obj
     for poly in obj.data.polygons:
         poly.use_smooth = True
+    live_viewport_update(0.15)
     return obj
 
 
@@ -129,7 +195,6 @@ def create_pbr_material(
     if "IOR" in bsdf.inputs:
         bsdf.inputs["IOR"].default_value = ior
 
-    # Handle Blender 3.x vs 4.x+ socket naming
     for sock_name in ("Transmission Weight", "Transmission"):
         if sock_name in bsdf.inputs:
             bsdf.inputs[sock_name].default_value = transmission
@@ -145,6 +210,7 @@ def create_pbr_material(
         if "Emission Strength" in bsdf.inputs:
             bsdf.inputs["Emission Strength"].default_value = emission_strength
 
+    live_viewport_update(0.10, shading_mode="MATERIAL")
     return mat
 
 
@@ -156,20 +222,19 @@ def setup_camera_with_target(
     res_x: int = 1920,
     res_y: int = 1080,
     ref_image_path: str = None,
+    switch_viewport_to_cam: bool = True,
 ):
     """Create or update the active scene camera with a Track-To target Empty and optional reference image overlay."""
     scene = bpy.context.scene
     scene.render.resolution_x = res_x
     scene.render.resolution_y = res_y
 
-    # Create or get target empty
     target_obj = bpy.data.objects.get("Camera_Target")
     if not target_obj:
         target_obj = bpy.data.objects.new("Camera_Target", None)
         ensure_collection("01_Camera_Lights").objects.link(target_obj)
     target_obj.location = Vector(target)
 
-    # Create or get camera
     cam_obj = bpy.data.objects.get("Main_Camera")
     if not cam_obj:
         cam_data = bpy.data.cameras.new("Main_Camera")
@@ -186,7 +251,6 @@ def setup_camera_with_target(
         cam_data.type = "PERSP"
         cam_data.lens = focal_length
 
-    # Track To constraint
     track = next((c for c in cam_obj.constraints if c.type == "TRACK_TO"), None)
     if not track:
         track = cam_obj.constraints.new(type="TRACK_TO")
@@ -194,7 +258,6 @@ def setup_camera_with_target(
     track.track_axis = "TRACK_NEGATIVE_Z"
     track.up_axis = "UP_Y"
 
-    # Optional reference image overlay
     if ref_image_path:
         try:
             img = bpy.data.images.load(ref_image_path, check_existing=True)
@@ -207,4 +270,7 @@ def setup_camera_with_target(
             print(f"Could not attach reference image: {exc}")
 
     scene.camera = cam_obj
+    if switch_viewport_to_cam:
+        set_viewport_to_camera("MATERIAL")
+    live_viewport_update(0.20)
     return cam_obj, target_obj
