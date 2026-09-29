@@ -136,6 +136,10 @@ def main():
 
     args = parser.parse_args()
 
+    if args.cmd == "laya-decide":
+        from laya_decision_gate import evaluate_decision
+        print(json.dumps(evaluate_decision(args.state, force_laya=args.force_laya), indent=2))
+        return
     if args.cmd == "status":
         res = send_command("ping", {}, host=args.host, port=args.port, foreground=True)
         send_command(

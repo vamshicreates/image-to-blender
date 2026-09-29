@@ -151,3 +151,28 @@ Before adding fine details, block out major volumes and **verify physical ground
      5. **Light & Shadow Direction**: Do cast shadows point the same way with matching softness?
 2. **Self-Correction**: Apply targeted fixes in Blender for any discrepancies, then re-verify with a fresh screenshot/render.
 3. **Final Output**: Save the `.blend` file (`bpy.ops.wm.save_as_mainfile(...)`) and render the final high-resolution image to the workspace so the user has both the live interactive Blender scene and the rendered still.
+
+---
+
+## Embedded Laya Decision Gate (`NandhaKishorM/laya`) — Call Laya ONLY When Necessary
+
+This skill embeds the **[Laya Non-Autoregressive Decision Model (`https://github.com/NandhaKishorM/laya`)](https://github.com/NandhaKishorM/laya)** inside [`scripts/laya_decision_gate.py`](scripts/laya_decision_gate.py) (`from laya import Router`).
+
+### Strict Execution Policy: When to Call Laya vs. Manual Execution
+
+1. **BASIC / EXPLICIT TASKS → DO NOT CALL LAYA (Execute Directly & Manually)**:
+   - If the user gives a clear, direct, or single-step command (for example: *"move camera to (0, -5, 2)"*, *"change cube color to red"*, *"set roughness to 0.2"*, *"render screenshot"*), **DO NOT call Laya**.
+   - Execute the step directly using the skill's native CLI/MCP tools to keep execution instant and zero-overhead.
+2. **COMPLEX / AMBIGUOUS MULTI-BRANCH TASKS → CALL LAYA (`laya_decision_gate.py`)**:
+   - Call Laya **only when** a genuine typed decision (`choice`, `score`, `noul`) across multiple creative lanes or ambiguous requirements is needed (for example: *Deconstruct a complex multi-object reference image into Procedural bpy vs. Poly Haven vs. Organic Subsurf lanes*; *Choose atmospheric lighting architecture and camera focal length for an ambiguous concept art scene*).
+   - Run the Laya Decision Gate:
+     ```bash
+     python3 scripts/laya_decision_gate.py --state "<user_brief_or_complex_state>"
+     ```
+   - `laya_decision_gate.py` automatically runs `should_call_laya()` first:
+     - If the task is basic, it immediately returns `"laya_called": false, "execution_mode": "direct_manual_execution"` without loading neural weights.
+     - If the task is genuinely complex, it invokes `laya.Router().predict(...)` in a single forward pass (~33ms) with calibrated confidence gating (`min_confidence=0.55`) and neutral `noul` labels (`{"true": "A", "false": "B"}`).
+   - To install the `laya` neural weights package (`pip install laya`) on a machine:
+     ```bash
+     python3 scripts/laya_decision_gate.py --install
+     ```

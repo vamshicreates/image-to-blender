@@ -67,3 +67,12 @@ Once installed, simply **drop any reference image into chat** and say:
 > *"Create this in Blender."*
 
 The agent will automatically launch Blender (if not already open), analyze your reference image, construct the 3D scene, inspect live viewport screenshots to self-correct proportions/lighting, and save both the `.blend` file and final render.
+
+---
+
+## What's New in v1.1.0 — Embedded Laya Decision Gate (`NandhaKishorM/laya`)
+
+This skill now embeds **[Laya (`https://github.com/NandhaKishorM/laya`)](https://github.com/NandhaKishorM/laya)** via `scripts/laya_decision_gate.py` with a **Strict Complexity Gate**:
+
+- **Basic Tasks → Direct Manual Execution (Laya Bypassed)**: Simple, explicit commands (*"move camera to (0, -5, 2)"*, *"change cube color to red"*, *"set roughness to 0.2"*, *"render screenshot"*) bypass Laya completely (`laya_called: false`) and run directly in Blender with zero model overhead.
+- **Complex / Ambiguous Creative Briefs → Laya System-1 Router (`from laya import Router`)**: Only when a task requires multi-branch creative routing (`choice`, `score`, `noul`), `scripts/laya_decision_gate.py` invokes Laya's non-autoregressive `Router` in a single forward pass.
